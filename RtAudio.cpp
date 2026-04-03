@@ -91,7 +91,7 @@ std::string convertCharPointerToStdString(const wchar_t* text)
   return nret;
 #else
   std::string result;
-  char dest[MB_CUR_MAX];
+  char* dest = (char*)malloc(sizeof(char) * MB_CUR_MAX);
   // get number of wide characters in text
   const size_t length = wcslen(text);
   for (size_t i = 0; i < length; i++) {
@@ -103,6 +103,7 @@ std::string convertCharPointerToStdString(const wchar_t* text)
       result += dest[j];
     }
   }
+  free(dest);
   return result;
 #endif
 }
@@ -1140,10 +1141,18 @@ void RtApiCore :: probeDevices( void )
     return;
   }
 
-  AudioDeviceID ids[ nDevices ];
+  AudioDeviceID* ids = (AudioDeviceID*)malloc(sizeof(AudioDeviceID) * nDevices);
+
+  if ( ids == NULL ) {
+    errorText_ = "RtApiCore::probeDevices: memory error allocating AudioDeviceID list.";
+    error( RTAUDIO_WARNING );
+    return;
+  }
+
   property.mSelector = kAudioHardwarePropertyDevices;
-  result = AudioObjectGetPropertyData( kAudioObjectSystemObject, &property, 0, NULL, &dataSize, (void *) &ids );
+  result = AudioObjectGetPropertyData( kAudioObjectSystemObject, &property, 0, NULL, &dataSize, (void *) ids );
   if ( result != noErr ) {
+    free(ids);
     errorText_ = "RtApiCore::probeDevices: OS-X system error getting device IDs.";
     error( RTAUDIO_SYSTEM_ERROR );
     return;
@@ -1181,6 +1190,8 @@ void RtApiCore :: probeDevices( void )
       deviceList_.erase( deviceList_.begin() + distance(deviceIds_.begin(), it ) );
     }
   }
+
+  free(ids);
 
   // Get default devices and set flags in deviceList_.
   AudioDeviceID defaultOutputId, defaultInputId;
@@ -1351,9 +1362,17 @@ bool RtApiCore :: probeDeviceInfo( AudioDeviceID id, RtAudio::DeviceInfo& info )
   }
 
   UInt32 nRanges = dataSize / sizeof( AudioValueRange );
-  AudioValueRange rangeList[ nRanges ];
-  result = AudioObjectGetPropertyData( id, &property, 0, NULL, &dataSize, &rangeList );
+  AudioValueRange* rangeList = (AudioValueRange*)malloc(sizeof(AudioValueRange) * nRanges);
+
+  if ( rangeList == NULL ) {
+    errorText_ = "RtApiCore::probeDeviceInfo: memory error allocating AudioValueRange list.";
+    error( RTAUDIO_WARNING );
+    return false;
+  }
+
+  result = AudioObjectGetPropertyData( id, &property, 0, NULL, &dataSize, rangeList );
   if ( result != kAudioHardwareNoError ) {
+    free(rangeList);
     errorStream_ << "RtApiCore::probeDeviceInfo: system error (" << getErrorCode( result ) << ") getting sample rates.";
     errorText_ = errorStream_.str();
     error( RTAUDIO_WARNING );
@@ -1384,6 +1403,8 @@ bool RtApiCore :: probeDeviceInfo( AudioDeviceID id, RtAudio::DeviceInfo& info )
       if ( rangeList[i].mMaximum < maximumRate ) maximumRate = rangeList[i].mMaximum;
     }
   }
+
+  free(rangeList);
 
   if ( haveValueRange ) {
     for ( unsigned int k=0; k<MAX_SAMPLE_RATES; k++ ) {
